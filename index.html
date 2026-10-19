@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="es-CL">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Operación Sur 2027 · Santiago → Osorno → Bariloche → Pucón</title>
+<meta name="description" content="Planificador interactivo del road trip familiar Santiago–Osorno–Bariloche–Pucón: mapa con rutas, itinerario día a día, alojamientos para 9 personas, atracciones, restaurantes y presupuesto vivo sumable.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏔️</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@500;700;800;900&family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="app">
+
+<!-- ══════════ HERO ══════════ -->
+<header class="hero">
+  <div class="wrap" style="position:relative;z-index:2">
+    <span class="kicker">🚙 2 familias · 9 personas · {{ cat.cfg.dias }} días · salida {{ cat.cfg.salida }}</span>
+    <h1>Operación <em>Sur 2027</em></h1>
+    <p class="sub">El plan completo del viaje en auto: qué ver en el camino, dónde dormir para 9, dónde comer rico
+      y cuánto cuesta TODO — sumando pieza por pieza. Tú decides qué entra al viaje.</p>
+    <div class="hero-stats">
+      <div class="hstat"><b>{{ kmTotales.toLocaleString('es-CL') }} km</b><span>de ruta total</span></div>
+      <div class="hstat"><b>{{ totalNoches }} noches</b><span>3 bases + camino</span></div>
+      <div class="hstat"><b>{{ items.length }}</b><span>opciones para sumar</span></div>
+      <div class="hstat"><b>{{ fmtCLP(totalCLP) }}</b><span>presupuesto vivo</span></div>
+    </div>
+    <div style="display:flex;gap:12px;margin-top:26px;flex-wrap:wrap">
+      <a class="btn amber" href="#mapa-section">🗺️ Ver el mapa de la ruta</a>
+      <a class="btn ghost" href="#catalogo">＋ Armar mi viaje</a>
+      <a class="btn ghost" href="#itinerario">📅 Itinerario día a día</a>
+    </div>
+  </div>
+</header>
+
+<div id="app">
+
+<!-- ══════════ BARRA PRESUPUESTO VIVO ══════════ -->
+<div class="pbar">
+  <div class="wrap pbar-in">
+    <div class="tot">{{ fmtCLP(totalCLP) }}<small>presupuesto de MI viaje ({{ elegidos.length }} cosas sumadas)</small></div>
+    <div class="mini">≈ <b>USD {{ Math.round(enUSD).toLocaleString('es-CL') }}</b></div>
+    <div class="mini">· {{ fmtCLP(porPersona) }} por persona</div>
+    <div class="mini">· {{ fmtCLP(porDia) }} por día</div>
+    <div class="spacer"></div>
+    <button class="btn ghost" @click="cat.showCanasta = true">🧾 Ver detalle</button>
+    <button class="btn amber" @click="compartir()">{{ cat.copiado ? '✓ ¡Enlace copiado!' : '🔗 Compartir plan' }}</button>
+  </div>
+</div>
+
+<!-- ══════════ MAPA ══════════ -->
+<section id="mapa-section">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="eyebrow">El recorrido</div>
+      <h2>El mapa de la aventura</h2>
+      <p>2.335 km de ruta real: Ruta 5 Sur, paso Cardenal Samoré, la Ruta de los Siete Lagos y el paso Tromen.
+        Toca cualquier punto para ver el precio y agregarlo al viaje.</p>
+    </div>
+    <div class="map-card">
+      <div id="mapa"></div>
+      <div class="map-tools">
+        <span style="font-size:12.5px;font-weight:800;color:#5a7480;margin-right:4px">CAPAS:</span>
+        <button v-for="(c, k) in CLS" :key="k" class="chip"
+                :class="{ on: cat.capaActiva[k] }"
+                :style="{ color: cat.capaActiva[k] ? c.color : '#94a3b8' }"
+                @click="toggleCapa(k)">
+          <span class="dot" :style="{ background: c.color }"></span>{{ c.icon }} {{ c.label }}
+        </button>
+        <span style="flex:1"></span>
+        <span style="font-size:12px;color:#94a3b8">{{ cat.rutasOk ? '🛣️ rutas reales (OSRM)' : '🛣️ ruta aproximada' }}</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════ ITINERARIO ══════════ -->
+<section id="itinerario" style="background:#eaf2f5;border-radius:34px 34px 0 0">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="eyebrow">Día a día</div>
+      <h2>El itinerario ({{ cat.cfg.dias }} días)</h2>
+      <p>Cada día con su plan: ruta, actividades y dónde comer. Los ítems están conectados al catálogo —
+        toca una píldora para sumarla o quitarla del presupuesto.</p>
+      <div class="settings" style="margin-top:18px">
+        <div class="set">
+          <label>DURACIÓN DEL VIAJE (10–14 DÍAS)</label>
+          <input type="range" min="10" max="14" v-model.number="cat.cfg.dias">
+          <span class="val">{{ cat.cfg.dias }} días · {{ totalNoches }} noches</span>
+        </div>
+        <div class="set">
+          <label>VEHÍCULOS</label>
+          <div class="seg">
+            <button :class="{ on: cat.cfg.vehiculos === 1 }" @click="cat.cfg.vehiculos = 1">1 van grande</button>
+            <button :class="{ on: cat.cfg.vehiculos === 2 }" @click="cat.cfg.vehiculos = 2">2 autos</button>
+          </div>
+          <span style="font-size:12.5px;color:#5a7480">multiplica bencina y peajes</span>
+        </div>
+        <div class="set">
+          <label>TIPO DE CAMBIO (1 CLP = ? ARS)</label>
+          <input type="number" step="0.01" min="0.5" v-model.number="cat.cfg.fx.arsPorClp" style="width:100%">
+          <span style="font-size:12.5px;color:#5a7480">hoy ≈ 1,55 — ajústalo al día de pagar</span>
+        </div>
+        <div class="set">
+          <label>BENCINA CLP/L · ARS/L</label>
+          <div style="display:flex;gap:8px">
+            <input type="number" v-model.number="cat.cfg.bencina_cl" style="width:50%">
+            <input type="number" v-model.number="cat.cfg.bencina_ar" style="width:50%">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="timeline">
+      <div v-for="d in diasVisibles" :key="d.dia" class="dia-card" :class="{ amanecer: d.dia === 1 }">
+        <div class="dia-num">{{ d.dia }}</div>
+        <div class="dia-tag">{{ d.dia === 1 ? '⭐ salida ' + cat.cfg.salida + ' — la madrugada épica' : (d.base || '') }}</div>
+        <h3>{{ d.titulo }}</h3>
+        <p>{{ d.cuerpo }}</p>
+        <div class="dia-items">
+          <button v-for="it in diaItems(d)" :key="it.id" class="dia-pill"
+                  :class="{ added: esta(it.id) }"
+                  @click="toggle(it); irEnMapa(it.id)"
+                  :title="it.nombre + ' — ' + it.base">
+            {{ (CLS[it.cat] || {}).icon }} {{ it.nombre.split('—')[0].split('(')[0].trim().slice(0, 34) }}
+            <span v-if="esta(it.id)">✓</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════ CATÁLOGO ══════════ -->
+<section id="catalogo" style="background:#eaf2f5;padding-top:20px">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="eyebrow">Opciones para armar el viaje</div>
+      <h2>Catálogo: todo lo que se puede agregar</h2>
+      <p>Alojamientos para 9 (casa completa o 2 cabañas por familia en el mismo recinto), atracciones con entrada,
+        restaurantes bien reputados, combustible y peajes por tramo. <b>Todos los precios son editables</b> —
+        cuando sepas el precio real, cámbialo y el presupuesto se actualiza al instante.</p>
+    </div>
+
+    <div class="filtros">
+      <input type="search" v-model="cat.busqueda" placeholder="🔍 Buscar: termas, parrilla, casa 9 personas…">
+      <select v-model="cat.filtroBase">
+        <option v-for="b in bases" :key="b" :value="b">{{ b === 'todos' ? '📍 Todas las bases' : b }}</option>
+      </select>
+      <select v-model="cat.filtroCat">
+        <option v-for="c in categorias" :key="c" :value="c">{{ c === 'todas' ? '🎯 Todas las categorías' : (CLS[c].icon + ' ' + CLS[c].label) }}</option>
+      </select>
+      <button class="btn soft" @click="planRecomendado()">⭐ Cargar plan recomendado</button>
+      <button class="btn danger" @click="planVacio()">🗑️ Vaciar</button>
+    </div>
+
+    <div class="grid">
+      <article v-for="it in catalogo" :key="it.id" class="item" :class="'c-' + it.cat">
+        <div class="top">
+          <span class="base-tag">{{ (CLS[it.cat] || {}).icon }} {{ it.base }}</span>
+          <span class="rating" v-if="it.rating">★ {{ it.rating }}</span>
+        </div>
+        <h3>{{ it.nombre }}</h3>
+        <p class="desc">{{ it.desc }}</p>
+        <div class="foot">
+          <div class="precio">
+            <template v-if="(precioEditOriginal(it) || 0) > 0">
+              <input class="price-edit" type="number" :value="precioEditOriginal(it)"
+                     @change="editarPrecio(it, $event.target.value)"
+                     :title="'Precio editable (' + it.moneda + ')'">
+              <small>{{ it.moneda }} {{ it.unit === 'persona' ? '/persona' : it.unit === 'noche' ? '/noche' : it.unit === 'vehiculo' ? '/vehículo' : '' }}</small>
+            </template>
+            <template v-else>¡GRATIS!</template>
+          </div>
+          <span class="noches-ctl" v-if="it.unit === 'noche' && esta(it.id)">
+            <button @click="setNoches(it.id, noches(it.id) - 1)">−</button>
+            {{ noches(it.id) }} noches
+            <button @click="setNoches(it.id, noches(it.id) + 1)">＋</button>
+          </span>
+          <span style="flex:1"></span>
+          <button class="addbtn" :class="{ on: esta(it.id) }"
+                  :style="{ background: (CLS[it.cat] || {}).color }"
+                  @click="toggle(it); irEnMapa(it.id)">
+            {{ esta(it.id) ? '✓ En el viaje' : '＋ Agregar' }}
+          </button>
+        </div>
+        <div class="src" v-if="it.fuente && it.fuente.u">
+          <a :href="it.fuente.u" target="_blank" rel="noopener">🔗 {{ it.fuente.n }} ↗</a>
+        </div>
+        <div class="src" v-else-if="it.fuente"><span style="color:#94a3b8">Fuente: {{ it.fuente.n }}</span></div>
+      </article>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════ CHECKLIST FRONTERA ══════════ -->
+<section>
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="eyebrow">Paso Cardenal Samoré · Paso Tromen</div>
+      <h2>Checklist fronterizo (marquen al equipar)</h2>
+      <p>Sin estos papeles el viaje se corta en la cordillera. Cédulas vigentes para los 9, seguro argentino,
+        formulario de salida temporal del vehículo y revisión técnica al día.</p>
+    </div>
+    <div class="check-grid">
+      <label v-for="c in checklist" :key="c.id" class="chk" :class="{ ok: c.ok }">
+        <input type="checkbox" v-model="c.ok"> <span>{{ c.texto }}</span>
+      </label>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div class="card">
+      <b>Operación Sur 2027</b> — planificador del road trip Santiago · Osorno · Bariloche · Pucón.
+      Precios = referencias de mercado recolectadas en octubre 2026 desde fuentes públicas
+      (Airbnb, Booking, CONAF/Pases Parques, Catedral Alta Patagonia, Termas Geométricas, YPF, Copec,
+      TripAdvisor, Autofact/MOP) — pueden variar al reservar, por eso <b>todos son editables en la página</b>.
+      El plan se guarda solo en este navegador y se comparte con el botón «Compartir plan».
+    </div>
+  </div>
+</footer>
+
+<!-- ══════════ FAB + CANASTA ══════════ -->
+<button class="fab" @click="cat.showCanasta = true">🧾 Mi viaje <b>{{ elegidos.length }}</b></button>
+
+<aside class="canasta" :class="{ open: cat.showCanasta }">
+  <header>
+    <b style="font-family:Outfit;font-size:18px">Mi viaje — {{ elegidos.length }} sumados</b>
+    <button class="btn ghost" @click="cat.showCanasta = false">✕</button>
+  </header>
+  <div class="list">
+    <div v-if="!elegidos.length" style="text-align:center;color:#5a7480;padding:40px 10px">
+      Nada sumado todavía.<br>Ve al catálogo o carga el <a href="#catalogo" @click="cat.showCanasta=false">plan recomendado ⭐</a>.
+    </div>
+    <div v-for="x in elegidos" :key="x.id" class="crow">
+      <span>{{ (CLS[x.cat] || {}).icon }}</span>
+      <span class="n">{{ x.nombre }}<br><small style="color:#5a7480">{{ x.base }} · {{ x.unit === 'noche' ? noches(x.id) + ' noches' : x.unit }}</small></span>
+      <span class="t">{{ fmtCLP(x.total) }}</span>
+      <button class="x" @click="toggle(x)" title="Quitar">✕</button>
+    </div>
+  </div>
+  <div class="suma">
+    <div style="display:flex;justify-content:space-between;font-size:14px;margin-bottom:4px">
+      <b>TOTAL</b><b style="font-family:Outfit;font-size:20px">{{ fmtCLP(totalCLP) }}</b>
+    </div>
+    <div style="font-size:12.5px;color:#5a7480">≈ USD {{ Math.round(enUSD).toLocaleString('es-CL') }} · {{ fmtCLP(porPersona) }}/persona · {{ fmtCLP(porDia) }}/día</div>
+    <div class="barras">
+      <div v-for="c in porCategoria" :key="c.cat" class="bar-row">
+        <span>{{ c.icon }} {{ c.label }}</span>
+        <span class="bar"><i :style="{ width: c.pct + '%', background: c.color }"></i></span>
+        <b style="text-align:right">{{ fmtCLP(c.total) }}</b>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px;font-size:13px">
+      <div style="background:#f0fdfa;border:1px solid #99f6e4;border-radius:10px;padding:9px 11px">
+        <b>Familia 1</b> (5 pax)<br>{{ fmtCLP(porFamilia[0].total) }}
+      </div>
+      <div style="background:#fefce8;border:1px solid #fde68a;border-radius:10px;padding:9px 11px">
+        <b>Familia 2</b> (4 pax)<br>{{ fmtCLP(porFamilia[1].total) }}
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:12px">
+      <button class="btn soft" style="flex:1" @click="planRecomendado()">⭐ Plan recomendado</button>
+      <button class="btn danger" @click="planVacio()">🗑️ Vaciar</button>
+    </div>
+  </div>
+</aside>
+
+<div v-cloak></div>
+</div><!-- /#app -->
+
+<script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
