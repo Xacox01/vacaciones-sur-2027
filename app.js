@@ -1,6 +1,8 @@
 /* ============================================================
-   Operación Sur 2027 — app interactiva
-   Vue 3 (CDN) + Leaflet (CDN) · presupuesto vivo · mapa con ruta
+   Operación Sur 2027 — app interactiva v3
+   Vue 3 + Leaflet autoalojados · cero build · ES2022
+   Itinerario día a día + presupuesto vivo + doble monedero
+   + plan de estanques por auto (Rush + CX-5)
    ============================================================ */
 
 const NIVEL_C = { "económico": "#059669", "medio": "#d97706", "premium": "#7c3aed" };
@@ -13,31 +15,32 @@ const CLS = {
   extra:       { label: "Extras",      color: "#8b5cf6", icon: "🧭" }
 };
 
-const { createApp, computed, ref, reactive, onMounted, watch } = Vue;
+const { createApp, computed, reactive, onMounted, watch } = Vue;
 
 createApp({
   setup() {
     /* ---------- estado ---------- */
     const cat = reactive({
       cfg: { ...VIAJE, fx: { ...FX } },
-      seleccion: {},      // id -> {nights?, qty?} (meta opcional)
-      precios: {},        // id -> precio editado (CLP base o moneda original)
+      seleccion: {},      // id -> {n?} meta
+      precios: {},        // id -> precio editado (en moneda original)
       filtroBase: "todos",
       filtroCat: "todas",
+      filtroNivel: "todos",
       busqueda: "",
-      mapListo: false,
       rutasOk: false,
       capaActiva: { alojamiento: true, atraccion: true, comida: true, ruta: true, extra: true },
       showCanasta: false,
+      showAjustes: false,
+      diaActiva: 1,
       copiado: false
     });
 
     const items = reactive(ITEMS.map(x => ({ ...x })));
     const itemPorId = id => items.find(x => x.id === id);
-    const itin = reactive(ITINERARIO);
     const checklist = reactive(CHECKLIST.map((t, i) => ({ id: i, texto: t, ok: false })));
 
-    /* persistencia + compartir */
+    /* ---------- persistencia + compartir ---------- */
     function serializar() {
       return JSON.stringify({ s: cat.seleccion, p: cat.precios, c: cat.cfg, k: checklist.map(c => c.ok) });
     }
@@ -45,7 +48,6 @@ createApp({
       if (obj.s) cat.seleccion = obj.s;
       if (obj.p) cat.precios = obj.p;
       if (obj.c) {
-        // migración: plan guardado con el esquema viejo (dias) o incompleto
         const c = { ...obj.c };
         if (c.dias && !c.noches) c.noches = Math.max(11, Math.min(15, c.dias - 1));
         if (!c.bloque || !BLOQUES.some(b => b.id === c.bloque)) c.bloque = "A";
@@ -87,10 +89,9 @@ createApp({
     }
     function planVacio() { cat.seleccion = {}; }
 
-    /* ---------- noches por base según duración ----------
-       slider 11–15 noches; resto se asigna a Pucón (base más larga) */
+    /* ---------- noches por base (slider 11–15; el resto va a Pucón) ---------- */
     function nochesBase(base) {
-      const n = cat.cfg.noches;              // 11..15
+      const n = cat.cfg.noches;
       const os = n >= 13 ? 3 : 2;
       const br = n >= 15 ? 5 : (n >= 12 ? 4 : 3);
       const pu = Math.max(2, n - os - br);
@@ -102,16 +103,13 @@ createApp({
     const totalNoches = computed(() => cat.cfg.noches);
     const totalDias = computed(() => cat.cfg.noches + 1);
 
-    /* ---------- fechas: bloques reales del viaje ---------- */
+    /* ---------- fechas ---------- */
     function addDias(iso, n) {
       const d = new Date(iso + "T12:00:00Z"); d.setUTCDate(d.getUTCDate() + n);
       return d.toISOString().slice(0, 10);
     }
     function diffDias(a, b) {
       return Math.round((new Date(a + "T12:00:00Z") - new Date(b + "T12:00:00Z")) / 864e5);
-    }
-    function fmtF(iso) {
-      return new Date(iso + "T12:00:00Z").toLocaleDateString("es-CL", { day: "numeric", month: "short", timeZone: "UTC" });
     }
     function fmtFDia(iso) {
       return new Date(iso + "T12:00:00Z").toLocaleDateString("es-CL", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" });
@@ -132,16 +130,15 @@ createApp({
       if (cat.cfg.noches < 11) cat.cfg.noches = 11;
     }
 
-    /* ---------- moneda ----------
-       Doble monedero: todo precio en ARS o USD se muestra en su moneda
-       original Y en CLP a la vez (equivCLP), con el tipo de cambio editable. */
+    /* ---------- moneda: doble monedero (ARS/USD + CLP a la vez) ---------- */
     function aCLP(precio, moneda) {
       if (moneda === "ARS") return precio / cat.cfg.fx.arsPorClp;
       if (moneda === "USD") return precio * cat.cfg.fx.clpPorUsd;
       return precio;
     }
-    function fmtCLP(v) {
-      return "$" + Math.round(v).toLocaleString("es-CL");
+    function fmtCLP(v) { return "$" + Math.round(v).toLocaleString("es-CL"); }
+    function precioEditOriginal(item) {
+      return cat.precios[item.id] !== undefined ? cat.precios[item.id] : item.precio;
     }
     function equivCLP(item) {
       const p = precioEditOriginal(item);
@@ -149,19 +146,9 @@ createApp({
       return fmtCLP(aCLP(p, item.moneda)) + " CLP";
     }
     function fmtMonOrig(item) {
-      // "300.000 ARS /noche" — precio en su moneda original con sufijo de unidad
       const p = precioEditOriginal(item);
       const suf = item.unit === "persona" ? "/persona" : item.unit === "noche" ? "/noche" : item.unit === "vehiculo" ? "/veh" : "";
       return p.toLocaleString("es-CL") + " " + item.moneda + suf;
-    }
-    function precioMostrado(item) {
-      const edit = cat.precios[item.id];
-      const p = edit !== undefined ? edit : item.precio;
-      return p;
-    }
-    function precioEditOriginal(item) {
-      // precio editable SIEMPRE en la moneda original del ítem
-      return cat.precios[item.id] !== undefined ? cat.precios[item.id] : item.precio;
     }
     function editarPrecio(item, val) {
       const v = parseFloat(val);
@@ -169,20 +156,29 @@ createApp({
       cat.precios[item.id] = v;
       guardar();
     }
+    /* precio para las tarjetas del itinerario (HTML: moneda original + ≈CLP) */
+    function precioTxt(it) {
+      if (it.unit === "sim") return fmtCLP(benc.value.totalCLP) + " · automático";
+      const p = precioEditOriginal(it);
+      const suf = it.unit === "persona" ? " p/p" : it.unit === "noche" ? " /noche" : it.unit === "vehiculo" ? " /veh" : "";
+      if (!p || p <= 0) return "¡Gratis!";
+      if (it.moneda === "CLP") return fmtCLP(p) + suf;
+      return p.toLocaleString("es-CL") + " " + it.moneda + suf +
+             ' <small>≈ ' + fmtCLP(aCLP(p, it.moneda)) + "</small>";
+    }
+    function nivelKey(n) {
+      return (n || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+    }
 
     /* ---------- motor de costos ----------
-       unit:
-       - noche      -> precio/noche (grupo 9 pax) × noches (selector)
-       - persona    -> precio × 9 (niños: usa precio_nino si existe)
-       - grupo      -> precio × 1
-       - vehiculo   -> precio × cat.cfg.vehiculos                     */
+       noche ×n · persona ×9 (niños con precio_nino) · grupo ×1 · vehículo ×2 */
     function costoCLP(id) {
       const item = itemPorId(id);
       if (!item) return 0;
       const meta = cat.seleccion[id];
       if (!meta) return 0;
-      if (item.unit === "sim") return benc.value.totalCLP;   // plan de estanques automático
-      const p = precioMostrado(item);
+      if (item.unit === "sim") return benc.value.totalCLP;
+      const p = cat.precios[item.id] !== undefined ? cat.precios[item.id] : item.precio;
       let total = 0;
       if (item.unit === "noche") {
         total = aCLP(p, item.moneda) * (meta.n || 1);
@@ -208,7 +204,6 @@ createApp({
     const porPersona = computed(() => totalCLP.value / 9);
     const porDia = computed(() => totalCLP.value / (cat.cfg.noches + 1));
     const enUSD = computed(() => totalCLP.value / cat.cfg.fx.clpPorUsd);
-
     const porCategoria = computed(() => {
       const acc = {};
       elegidos.value.forEach(x => { acc[x.cat] = (acc[x.cat] || 0) + x.total; });
@@ -217,23 +212,21 @@ createApp({
         .map(([k, v]) => ({ cat: k, ...CLS[k], total: v, pct: (v / total) * 100 }))
         .sort((a, b) => b.total - a.total);
     });
-    const porFamilia = computed(() => {
-      // per cápita igualitario (compartido) — itemizable luego
-      const f1p = 5, f2p = 4;
-      return [
-        { nombre: "Familia 1", pax: f1p, total: totalCLP.value * f1p / 9 },
-        { nombre: "Familia 2", pax: f2p, total: totalCLP.value * f2p / 9 }
-      ];
-    });
+    const porFamilia = computed(() => [
+      { nombre: "Familia 1", pax: 5, total: totalCLP.value * 5 / 9 },
+      { nombre: "Familia 2", pax: 4, total: totalCLP.value * 4 / 9 }
+    ]);
 
-    /* ---------- catálogo ---------- */
+    /* ---------- catálogo (explorar) ---------- */
     const bases = ["todos", ...new Set(items.map(x => x.base))];
     const categorias = ["todas", ...Object.keys(CLS)];
+    const niveles = ["económico", "medio", "premium"];
     const catalogo = computed(() => {
       const q = cat.busqueda.trim().toLowerCase();
       return items.filter(x =>
         (cat.filtroBase === "todos" || x.base === cat.filtroBase) &&
         (cat.filtroCat === "todas" || x.cat === cat.filtroCat) &&
+        (cat.filtroNivel === "todos" || x.nivel === cat.filtroNivel) &&
         (!q || (x.nombre + " " + x.desc + " " + x.base).toLowerCase().includes(q))
       );
     });
@@ -250,6 +243,49 @@ createApp({
       guardar();
     }
 
+    /* ---------- itinerario día a día ---------- */
+    const diasVisibles = computed(() => {
+      const n = cat.cfg.noches + 1;                       // 12–16 días
+      const lista = DIAS.map(d => ({ ...d }));
+      EXTRAS.slice(0, Math.max(0, n - 12)).forEach(e => { // días extra en su posición
+        const idx = lista.findIndex(d => d.dia === e.tras) + 1;
+        lista.splice(idx, 0, { ...e });
+      });
+      lista.push({ ...REGRESO });
+      return lista.slice(0, n).map((d, i) => ({ ...d, dia: i + 1 }));
+    });
+    const diaActual = computed(() =>
+      diasVisibles.value.find(d => d.dia === cat.diaActiva) || diasVisibles.value[0]
+    );
+    function irDia(n) {
+      const max = diasVisibles.value.length;
+      cat.diaActiva = Math.min(max, Math.max(1, n));
+      requestAnimationFrame(() => {
+        const el = document.querySelector(".day");
+        if (el && window.scrollY > el.offsetTop - 160) el.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    }
+    function itemsDe(ids) { return (ids || []).map(id => itemPorId(id)).filter(Boolean); }
+    function tramoDe(id) { return TRAMOS.find(t => t.id === id) || null; }
+    function dormirDe(d) { return d.dormirBase ? itemsDe(DORMIR[d.dormirBase]) : []; }
+    function bloquesDe(d) { return [
+      { icono: "🌅", titulo: "Mañana", items: itemsDe(d.manana) },
+      { icono: "☀️", titulo: "Tarde", items: itemsDe(d.tarde) },
+      { icono: "🌙", titulo: "Noche", items: itemsDe(d.noche) }
+    ]; }
+    function slotsDe(d) { return [
+      { icono: "☕", titulo: "Desayuno", items: itemsDe(d.desayuno) },
+      { icono: "🍴", titulo: "Almuerzo", items: itemsDe(d.almuerzo) },
+      { icono: "🍲", titulo: "Cena", items: itemsDe(d.cena) }
+    ].filter(s => s.items.length); }
+    function tieneComidas(d) { return slotsDe(d).length > 0; }
+    function diaElegidos(d) {
+      const ids = [...(d.costos || []), ...(d.desayuno || []), ...(d.almuerzo || []), ...(d.cena || []),
+                   ...(d.manana || []), ...(d.tarde || []), ...(d.noche || []),
+                   ...(d.dormirBase ? DORMIR[d.dormirBase] : [])];
+      return ids.filter((id, i) => ids.indexOf(id) === i && esta(id)).length;
+    }
+
     /* ---------- mapa ---------- */
     let map, layers = {}, rutasLayer;
     const iconoDiv = (color, emoji, size) => L.divIcon({
@@ -261,7 +297,7 @@ createApp({
       const c = CLS[item.cat];
       const en = esta(item.id);
       const p = precioEditOriginal(item);
-      const precioTxt = p > 0
+      const precioTxtPop = p > 0
         ? (item.moneda !== "CLP"
             ? `${p.toLocaleString("es-CL")} ${item.moneda} <small>≈ ${fmtCLP(aCLP(p, item.moneda))} CLP</small>`
             : fmtCLP(p)) + (item.unit === "persona" ? " pp" : item.unit === "noche" ? " /noche" : item.unit === "vehiculo" ? " /veh" : "")
@@ -270,7 +306,7 @@ createApp({
         <div class="pop-cat" style="background:${c.color}">${c.icon} ${c.label}</div>
         <div class="pop-nombre">${item.nombre}${item.nivel ? ` <span style="display:inline-block;font-size:10.5px;font-weight:800;padding:2px 8px;border-radius:99px;color:#fff;background:${NIVEL_C[item.nivel] || "#64748b"};vertical-align:middle">${item.nivel.toUpperCase()}</span>` : ""}</div>
         <div class="pop-desc">${item.desc || ""}</div>
-        <div class="pop-precio">${precioTxt}${item.rating ? ` · ★${item.rating}` : ""}</div>
+        <div class="pop-precio">${precioTxtPop}${item.rating ? ` · ★${item.rating}` : ""}</div>
         ${item.fuente && item.fuente.u ? `<a href="${item.fuente.u}" target="_blank" rel="noopener">Fuente: ${item.fuente.n} ↗</a>` : ""}
         <button data-add="${item.id}" class="pop-btn" style="background:${en ? "#e2e8f0;color:#334155" : c.color}">${en ? "✓ En el viaje — quitar" : "+ Agregar al viaje"}</button>
       </div>`;
@@ -301,7 +337,7 @@ createApp({
       rutasLayer = rutasLayer || L.layerGroup().addTo(map);
       const all = [];
       for (const t of TRAMOS) {
-        const pts = t.wp.map(w => [w[0], w[1]]);   // [lat,lng] — sin mutar el original
+        const pts = t.wp.map(w => [w[0], w[1]]);
         all.push(...pts);
         let line = null;
         try {
@@ -316,14 +352,12 @@ createApp({
         } catch (e) { /* fallback abajo */ }
         if (!line) line = L.polyline(pts, { color: "#0f766e", weight: 5, opacity: 0.8, dashArray: "8 8" });
         rutasLayer.addLayer(line);
-        // etiqueta del tramo
         const mid = pts[Math.floor(pts.length / 2)];
         L.marker(mid, {
           icon: L.divIcon({ className: "mk", html: `<div class="tramo-chip">${t.icono} ${t.de} → ${t.a} · ${t.km} km · ${t.h}</div>`, iconSize: [10, 10], iconAnchor: [0, 12] }),
           interactive: false
         }).addTo(rutasLayer);
       }
-      // marcadores numerados de bases
       const basesPos = [
         { p: [-33.4489, -70.6693], n: "1", txt: "Santiago — salida 04:00" },
         { p: [-40.5745, -73.1339], n: "2", txt: "Osorno — 2-3 noches" },
@@ -332,7 +366,7 @@ createApp({
       ];
       basesPos.forEach(b => {
         L.marker(b.p, {
-          icon: L.divIcon({ className: "mk", html: `<div class="base-pin">${b.n}</div>`, iconSize: [30, 30], iconAnchor: [15, 15] })
+          icon: L.divIcon({ className: "mk", html: `<div class="base-pin"><span>${b.n}</span></div>`, iconSize: [30, 30], iconAnchor: [15, 15] })
         }).addTo(rutasLayer).bindPopup(`<b>${b.txt}</b>`);
       });
       map.fitBounds(L.latLngBounds(all), { padding: [40, 40] });
@@ -347,7 +381,6 @@ createApp({
       Object.entries(layers).forEach(([k, lg]) => lg.addTo(map));
       bindPopActions();
       dibujarRutas();
-      cat.mapListo = true;
     }
     function toggleCapa(k) {
       if (!map) return;
@@ -358,47 +391,17 @@ createApp({
       const it = itemPorId(id);
       if (!it || !it.geo || !map) return;
       document.getElementById("mapa-section").scrollIntoView({ behavior: "smooth" });
-      setTimeout(() => { map.setView(it.geo, 12); it.marker && it.marker; }, 350);
+      setTimeout(() => { map.setView(it.geo, 12); }, 350);
     }
 
-    /* ---------- itinerario (con días extra cuando hay 12+ noches) ---------- */
-    const EXTRAS = [
-      { base: "Bariloche", titulo: "Día extra en Bariloche: Otto y Colonia Suiza", hora: "09:00",
-        cuerpo: "Aerosilla del Cerro Otto y la confitería giratoria, tarde en Colonia Suiza (curanto si cae miércoles/domingo) y playa en Bahía López.",
-        items: ["cerro-otto", "colonia-suiza"] },
-      { base: "Pucón", titulo: "Día extra en Pucón: Caburgua, termas y playa", hora: "09:30",
-        cuerpo: "Ojos del Caburgua por la mañana, termas de Palguín después del almuerzo y atardecer en la playa con el volcán de fondo.",
-        items: ["ojos-caburgua", "termas-palguin", "playa-pucon"] },
-      { base: "Osorno", titulo: "Día extra zona Osorno: Puerto Octay y Pilmaiquén", hora: "10:00",
-        cuerpo: "Vuelta relajada por el lago Rupanco: miradores de Puerto Octay y los saltos del Pilmaiquén antes de volver a la casa.",
-        items: ["puerto-octay", "pilmaiquen"] },
-      { base: "Pucón", titulo: "Día extra relax en Pucón: lago, feria y asado", hora: "10:30",
-        cuerpo: "Mañana de playa y kayak, feria artesanal por la tarde y asado de despedida en el quincho.",
-        items: ["playa-pucon", "feria-pucon"] }
-    ];
-    function diaItems(d) {
-      return (d.items || []).map(id => itemPorId(id)).filter(Boolean);
-    }
-    const diasVisibles = computed(() => {
-      const n = cat.cfg.noches + 1;                     // días totales (12–16)
-      const base = itin.filter(d => d.dia <= 11);
-      const regreso = itin.find(d => d.dia === 12);
-      const extras = EXTRAS.slice(0, Math.max(0, n - 12));
-      const lista = [...base, ...extras.map((e, i) => ({ ...e, dia: 12 + i }))];
-      if (regreso && n >= 12) lista.push({ ...regreso, dia: n });
-      return lista.slice(0, n).map((d, i) => ({ ...d, dia: i + 1 }));
-    });
-
-    /* ---------- km ---------- */
-    /* ---------- plan de bencina: simulación de estanques (Rush + CX-5) ----------
-       1) Carga virtual inicial: cada auto parte con el estanque LLENO en Santiago.
-       2) Se proyecta en km dónde se quedaría sin bencina el auto de MENOR autonomía
-          (estanque × consumo). En ese punto se detiene la ruta y ahí:
-            - el estanque chico LLENA completo (casi vacío → tanque entero)
-            - el grande paga solo lo que le falta para llenar (top-up)
-       3) Se repite hasta Santiago. Se suma +15% de manejo local (excursiones/ciudad).
-       El precio del litro depende del país del punto de carga (CLP/ARS + FX). */
-    const KM_RUTA = TRAMOS.reduce((a, t) => a + t.km, 0);          // 2.335 km de ruta
+    /* ---------- plan de estanques (Rush + CX-5) ----------
+       1) Cada auto parte con el estanque LLENO en Santiago (carga virtual).
+       2) Se proyecta dónde se quedaría sin bencina el de MENOR autonomía
+          (estanque × consumo). Ahí: el chico LLENA completo, el grande
+          paga solo el top-up para llenar.
+       3) Se repite hasta Santiago. +15% manejo local.
+       Precio del litro según país del punto de carga (CLP/ARS + FX). */
+    const KM_RUTA = TRAMOS.reduce((a, t) => a + t.km, 0);
     function paisEnKm(km) { return km <= 1020 ? "CL" : (km < 1455 ? "AR" : "CL"); }
     function marcaCercana(km) {
       return MARKS_BENC.reduce((b, m) => Math.abs(m.km - km) < Math.abs(b.km - km) ? m : b);
@@ -407,9 +410,9 @@ createApp({
       const autos = [
         { id: "rush", nombre: "Toyota Rush", tanque: +cat.cfg.tanques.rush || 45, cons: +cat.cfg.consumos.rush || 11 },
         { id: "cx5",  nombre: "Mazda CX-5",  tanque: +cat.cfg.tanques.cx5  || 58, cons: +cat.cfg.consumos.cx5  || 11 }
-      ].sort((a, b) => a.tanque * a.cons - b.tanque * b.cons);     // menor autonomía primero
+      ].sort((a, b) => a.tanque * a.cons - b.tanque * b.cons);
       const kmEf = KM_RUTA * 1.15;
-      const st = autos.map(a => ({ ...a, rest: a.tanque }));       // parten LLENOS
+      const st = autos.map(a => ({ ...a, rest: a.tanque }));
       const cargas = [{
         n: 1, lugar: "Carga virtual inicial — Santiago (04:00)", km: 0, pais: "CL",
         porAuto: st.map(e => ({ nombre: e.nombre, litros: e.tanque, nota: "estanque lleno" }))
@@ -417,16 +420,16 @@ createApp({
       let km = 0, guard = 0;
       while (km < kmEf - 0.5 && guard++ < 24) {
         const prox = Math.min(...st.map(e => km + e.rest * e.cons));
-        if (prox >= kmEf) break;                                   // llega con lo que tiene
+        if (prox >= kmEf) break;
         const av = prox - km;
         st.forEach(e => { e.rest -= av / e.cons; });
         km = prox;
-        const kmRuta = Math.round(km / 1.15);                      // vuelta a escala de ruta
+        const kmRuta = Math.round(km / 1.15);
         const m = marcaCercana(kmRuta);
         const pais = paisEnKm(kmRuta);
         const porAuto = st.map(e => {
           const litros = Math.round((e.tanque - e.rest) * 10) / 10;
-          e.rest = e.tanque;                                       // queda lleno
+          e.rest = e.tanque;
           return { nombre: e.nombre, litros, nota: litros >= e.tanque - 1 ? "llena completo" : "top-up para llenar" };
         });
         cargas.push({ n: cargas.length + 1, lugar: m.lugar, km: kmRuta, pais, porAuto });
@@ -438,7 +441,6 @@ createApp({
         const total = Math.round(litrosTotal * pL);
         return { ...c, litrosTotal, mon, total, clp: aCLP(total, mon) };
       });
-      // descontar el tramo final (de la última carga a la llegada) para el sobrante real
       const kmRestante = Math.max(0, kmEf - km);
       st.forEach(e => { e.rest -= kmRestante / e.cons; });
       return {
@@ -451,9 +453,14 @@ createApp({
       };
     }
     const benc = computed(planBencina);
-    const kmTotales = computed(() => KM_RUTA);   // km de ruta total (hero)
+    const kmTotales = computed(() => KM_RUTA);
 
-    watch(() => cat.cfg.noches, () => { validarNoches(); guardar(); });
+    /* ---------- reactividad + persistencia ---------- */
+    watch(() => cat.cfg.noches, () => {
+      validarNoches(); guardar();
+      const max = diasVisibles.value.length;
+      if (cat.diaActiva > max) cat.diaActiva = max;
+    });
     watch(() => cat.cfg.tanques, guardar, { deep: true });
     watch(() => cat.cfg.consumos, guardar, { deep: true });
     watch(() => cat.cfg.bloque, () => {
@@ -463,7 +470,6 @@ createApp({
       guardar();
     });
     watch(() => cat.cfg.salidaFecha, () => { validarNoches(); guardar(); });
-    watch(() => cat.cfg.vehiculos, guardar);
     watch(checklist, guardar, { deep: true });
 
     onMounted(() => {
@@ -472,15 +478,16 @@ createApp({
     });
 
     return {
-      cat, items, itin, checklist, CLS, BLOQUES,
-      bases, categorias, catalogo,
+      cat, items, checklist, CLS, BLOQUES,
+      bases, categorias, niveles, catalogo,
       elegidos, totalCLP, porPersona, porDia, enUSD, porCategoria, porFamilia,
       esta, toggle, noches, setNoches, fmtCLP, aCLP,
-      precioMostrado, precioEditOriginal, editarPrecio, equivCLP, fmtMonOrig,
-      toggleCapa, irEnMapa, diaItems, diasVisibles,
+      precioEditOriginal, editarPrecio, equivCLP, fmtMonOrig, precioTxt, nivelKey,
+      toggleCapa, irEnMapa,
+      diasVisibles, diaActual, irDia, tramoDe, itemsDe, bloquesDe, slotsDe, dormirDe, tieneComidas, diaElegidos,
       nochesBase, totalNoches, totalDias, kmTotales, benc, costoCLP,
-      bloqueAct, nochesMax, finViaje, fechaDia, fmtF, fmtFDia, addDias, diffDias, validarNoches,
-      planRecomendado, planVacio, compartir, guardar
+      bloqueAct, nochesMax, finViaje, fechaDia, fmtFDia, addDias, validarNoches,
+      planRecomendado, planVacio, compartir
     };
   }
 }).mount("#app");
