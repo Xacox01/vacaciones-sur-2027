@@ -209,7 +209,7 @@
         <div class="foot">
           <div class="precio">
             <template v-if="it.unit === 'sim'">
-              <span class="sim-total">{{ fmtCLP(costoCLP(it)) }}</span>
+              <span class="sim-total">{{ fmtCLP(costoCLP(it.id)) }}</span>
               <small>plan automático</small>
               <a class="equiv-clp" href="#itinerario" style="text-decoration:none">⛽ Ver plan de estanques</a>
             </template>
