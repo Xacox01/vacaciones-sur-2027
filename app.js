@@ -131,13 +131,27 @@ createApp({
       if (cat.cfg.noches < 11) cat.cfg.noches = 11;
     }
 
-    /* ---------- moneda ---------- */
+    /* ---------- moneda ----------
+       Doble monedero: todo precio en ARS o USD se muestra en su moneda
+       original Y en CLP a la vez (equivCLP), con el tipo de cambio editable. */
     function aCLP(precio, moneda) {
       if (moneda === "ARS") return precio / cat.cfg.fx.arsPorClp;
+      if (moneda === "USD") return precio * cat.cfg.fx.clpPorUsd;
       return precio;
     }
     function fmtCLP(v) {
       return "$" + Math.round(v).toLocaleString("es-CL");
+    }
+    function equivCLP(item) {
+      const p = precioEditOriginal(item);
+      if (!p || p <= 0 || item.moneda === "CLP") return null;
+      return fmtCLP(aCLP(p, item.moneda)) + " CLP";
+    }
+    function fmtMonOrig(item) {
+      // "300.000 ARS /noche" — precio en su moneda original con sufijo de unidad
+      const p = precioEditOriginal(item);
+      const suf = item.unit === "persona" ? "/persona" : item.unit === "noche" ? "/noche" : item.unit === "vehiculo" ? "/veh" : "";
+      return p.toLocaleString("es-CL") + " " + item.moneda + suf;
     }
     function precioMostrado(item) {
       const edit = cat.precios[item.id];
@@ -246,8 +260,8 @@ createApp({
       const en = esta(item.id);
       const p = precioEditOriginal(item);
       const precioTxt = p > 0
-        ? (item.moneda === "ARS"
-            ? `${p.toLocaleString("es-AR")} ARS <small>≈ ${fmtCLP(aCLP(p, "ARS"))}</small>`
+        ? (item.moneda !== "CLP"
+            ? `${p.toLocaleString("es-CL")} ${item.moneda} <small>≈ ${fmtCLP(aCLP(p, item.moneda))} CLP</small>`
             : fmtCLP(p)) + (item.unit === "persona" ? " pp" : item.unit === "noche" ? " /noche" : item.unit === "vehiculo" ? " /veh" : "")
         : "¡GRATIS!";
       return `<div class="pop">
@@ -403,7 +417,7 @@ createApp({
       bases, categorias, catalogo,
       elegidos, totalCLP, porPersona, porDia, enUSD, porCategoria, porFamilia,
       esta, toggle, noches, setNoches, fmtCLP, aCLP,
-      precioMostrado, precioEditOriginal, editarPrecio,
+      precioMostrado, precioEditOriginal, editarPrecio, equivCLP, fmtMonOrig,
       toggleCapa, irEnMapa, diaItems, diasVisibles,
       nochesBase, totalNoches, totalDias, kmTotales, bencinaTotal,
       bloqueAct, nochesMax, finViaje, fechaDia, fmtF, fmtFDia, addDias, diffDias, validarNoches,
