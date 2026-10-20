@@ -104,14 +104,26 @@
           <span class="val">{{ cat.cfg.noches }} noches · {{ totalDias }} días</span>
         </div>
         <div class="set">
-          <label>TUS 2 AUTOS — ESTANQUE (L) · CONSUMO (KM/L)</label>
-          <div style="display:flex;gap:8px">
-            <input type="number" min="20" max="100" v-model.number="cat.cfg.tanques.rush" title="Toyota Rush — estanque (oficial: 45 L)" style="width:25%">
-            <input type="number" min="5" max="25" step="0.5" v-model.number="cat.cfg.consumos.rush" title="Toyota Rush — consumo km/L" style="width:25%">
-            <input type="number" min="20" max="100" v-model.number="cat.cfg.tanques.cx5" title="Mazda CX-5 — estanque (oficial: 56–58 L)" style="width:25%">
-            <input type="number" min="5" max="25" step="0.5" v-model.number="cat.cfg.consumos.cx5" title="Mazda CX-5 — consumo km/L" style="width:25%">
+          <label>TUS 2 AUTOS — ESTANQUE (L) Y CONSUMO (KM/L)</label>
+          <div class="autos-grid">
+            <div class="auto-campo">
+              <span class="mini-lbl">🚙 Toyota Rush · estanque (L)</span>
+              <input type="number" min="20" max="100" v-model.number="cat.cfg.tanques.rush" title="Toyota Rush — capacidad del estanque en litros (oficial: 45 L)">
+            </div>
+            <div class="auto-campo">
+              <span class="mini-lbl">🚙 Toyota Rush · consumo (km/L)</span>
+              <input type="number" min="5" max="25" step="0.5" v-model.number="cat.cfg.consumos.rush" title="Toyota Rush — kilómetros que recorre por litro (promedio: 11)">
+            </div>
+            <div class="auto-campo">
+              <span class="mini-lbl">🚗 Mazda CX-5 · estanque (L)</span>
+              <input type="number" min="20" max="100" v-model.number="cat.cfg.tanques.cx5" title="Mazda CX-5 — capacidad del estanque en litros (oficial: 56–58 L)">
+            </div>
+            <div class="auto-campo">
+              <span class="mini-lbl">🚗 Mazda CX-5 · consumo (km/L)</span>
+              <input type="number" min="5" max="25" step="0.5" v-model.number="cat.cfg.consumos.cx5" title="Mazda CX-5 — kilómetros que recorre por litro (promedio: 11)">
+            </div>
           </div>
-          <span style="font-size:12.5px;color:#5a7480">🚙 Rush 45 L · 🚗 CX-5 56–58 L — a 11 km/L: autonomías {{ benc.autonomias.map(a => a.nombre.split(' ')[1] + ' ' + a.km + ' km').join(' · ') }}</span>
+          <span style="font-size:12.5px;color:#5a7480;display:block;margin-top:7px">Aquí se coloca la <b>capacidad del estanque en litros</b> y el <b>rendimiento en km por litro</b> de cada auto (se escribe directo, sin flechas). Con eso el plan de estanques calcula la autonomía: {{ benc.autonomias.map(a => a.nombre.split(' ')[1] + ' ' + a.km + ' km').join(' · ') }}.</span>
         </div>
         <div class="set">
           <label>TIPO DE CAMBIO (1 CLP = ? ARS)</label>

@@ -147,6 +147,10 @@ select, input[type="search"], input[type="number"] {
   font: inherit; border: 1.5px solid var(--line); border-radius: 12px; padding: 10px 13px; background: #fff; color: var(--ink);
 }
 input[type="search"] { min-width: 230px; flex: 1; }
+/* sin flechas de spinner en inputs numéricos — se edita escribiendo directo */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
 .item {
   background: var(--card); border: 1px solid var(--line); border-radius: var(--r);
@@ -197,6 +201,10 @@ input[type="search"] { min-width: 230px; flex: 1; }
 .set label { font-size: 12.5px; font-weight: 700; color: var(--mut); display: block; margin-bottom: 6px; letter-spacing: .3px; }
 .set .val { font-weight: 800; font-family: "Outfit"; font-size: 19px; }
 .set input[type="range"] { width: 100%; accent-color: var(--teal); }
+.autos-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 10px; }
+.auto-campo { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.auto-campo .mini-lbl { font-size: 11.5px; font-weight: 800; color: #0b3948; letter-spacing: .2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.auto-campo input { width: 100%; padding: 8px 10px; border-radius: 10px; font-weight: 700; }
 .seg { display: inline-flex; border: 1.5px solid var(--line); border-radius: 12px; overflow: hidden; }
 .seg button { border: 0; background: #fff; padding: 8px 14px; font-weight: 700; cursor: pointer; color: var(--mut); }
 .seg button.on { background: var(--teal); color: #fff; }
