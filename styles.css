@@ -203,7 +203,7 @@ input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
 .set input[type="range"] { width: 100%; accent-color: var(--teal); }
 .autos-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 10px; }
 .auto-campo { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-.auto-campo .mini-lbl { font-size: 11.5px; font-weight: 800; color: #0b3948; letter-spacing: .2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.auto-campo .mini-lbl { font-size: 11.5px; font-weight: 800; color: #0b3948; letter-spacing: .2px; line-height: 1.3; }
 .auto-campo input { width: 100%; padding: 8px 10px; border-radius: 10px; font-weight: 700; }
 .seg { display: inline-flex; border: 1.5px solid var(--line); border-radius: 12px; overflow: hidden; }
 .seg button { border: 0; background: #fff; padding: 8px 14px; font-weight: 700; cursor: pointer; color: var(--mut); }
