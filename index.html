@@ -104,12 +104,14 @@
           <span class="val">{{ cat.cfg.noches }} noches · {{ totalDias }} días</span>
         </div>
         <div class="set">
-          <label>VEHÍCULOS</label>
-          <div class="seg">
-            <button :class="{ on: cat.cfg.vehiculos === 1 }" @click="cat.cfg.vehiculos = 1">1 van grande</button>
-            <button :class="{ on: cat.cfg.vehiculos === 2 }" @click="cat.cfg.vehiculos = 2">2 autos</button>
+          <label>TUS 2 AUTOS — ESTANQUE (L) · CONSUMO (KM/L)</label>
+          <div style="display:flex;gap:8px">
+            <input type="number" min="20" max="100" v-model.number="cat.cfg.tanques.rush" title="Toyota Rush — estanque (oficial: 45 L)" style="width:25%">
+            <input type="number" min="5" max="25" step="0.5" v-model.number="cat.cfg.consumos.rush" title="Toyota Rush — consumo km/L" style="width:25%">
+            <input type="number" min="20" max="100" v-model.number="cat.cfg.tanques.cx5" title="Mazda CX-5 — estanque (oficial: 56–58 L)" style="width:25%">
+            <input type="number" min="5" max="25" step="0.5" v-model.number="cat.cfg.consumos.cx5" title="Mazda CX-5 — consumo km/L" style="width:25%">
           </div>
-          <span style="font-size:12.5px;color:#5a7480">multiplica bencina y peajes</span>
+          <span style="font-size:12.5px;color:#5a7480">🚙 Rush 45 L · 🚗 CX-5 56–58 L — a 11 km/L: autonomías {{ benc.autonomias.map(a => a.nombre.split(' ')[1] + ' ' + a.km + ' km').join(' · ') }}</span>
         </div>
         <div class="set">
           <label>TIPO DE CAMBIO (1 CLP = ? ARS)</label>
@@ -123,6 +125,31 @@
             <input type="number" v-model.number="cat.cfg.bencina_ar" style="width:50%">
           </div>
         </div>
+      </div>
+
+      <!-- ⛽ PLAN DE ESTANQUES (simulación Rush + CX-5) -->
+      <div class="benc-panel">
+        <div class="benc-head">
+          <h3>⛽ Plan de estanques — Rush + CX-5</h3>
+          <span class="benc-res">{{ benc.litrosTotal }} L totales · {{ fmtCLP(benc.totalCLP) }}<span v-if="benc.cargas.some(c => c.mon === 'ARS')"> (incluye carga en ARS convertida)</span> · llegan con {{ benc.sobrante.map(s => s.nombre.split(' ')[1] + ' ' + s.litros + ' L').join(' y ') }} sin usar</span>
+        </div>
+        <table class="benc-tabla">
+          <thead>
+            <tr><th>#</th><th>Dónde (km de ruta)</th><th v-for="a in benc.autonomias">{{ a.nombre }} <small>· {{ a.km }} km</small></th><th>Costo de la carga</th></tr>
+          </thead>
+          <tbody>
+            <tr v-for="c in benc.cargas" :key="c.n">
+              <td class="bn-num">{{ c.n }}</td>
+              <td><b>{{ c.lugar }}</b><br><small>≈ km {{ c.km }} · {{ c.pais === 'AR' ? '🇦🇷 nafta ARS/L' : '🇨🇱 bencina CLP/L' }}</small></td>
+              <td v-for="(p, i) in c.porAuto" :key="i">{{ p.litros }} L<br><small :class="{ topup: p.nota.includes('top-up') }">{{ p.nota }}</small></td>
+              <td class="bn-costo"><b v-if="c.mon === 'ARS'">ARS {{ c.total.toLocaleString('es-CL') }}</b><b v-else>{{ fmtCLP(c.total) }}</b><br><small>≈ {{ fmtCLP(c.clp) }}{{ c.litrosTotal ? ' · ' + c.litrosTotal + ' L' : '' }}</small></td>
+            </tr>
+          </tbody>
+          <tfoot>
+            <tr><td colspan="2"><b>TOTAL BENCINA ({{ benc.cargas.length }} cargas)</b></td><td><small>{{ benc.litrosTotal }} L</small></td><td><b>{{ fmtCLP(benc.totalCLP) }}</b> <small>≈ USD {{ Math.round(benc.totalCLP / cat.cfg.fx.clpPorUsd).toLocaleString('es-CL') }}</small></td></tr>
+          </tfoot>
+        </table>
+        <p class="benc-nota">💡 <b>Cómo funciona:</b> cada auto parte con el estanque <b>lleno</b> en Santiago (carga virtual). La ruta se detiene justo donde el auto de <b>menor autonomía</b> ({{ benc.chico.nombre }} · {{ Math.round(benc.chico.tanque * benc.chico.cons) }} km) se quedaría sin bencina — allí el chico <b>llena completo</b> y el grande paga <b>solo lo que le falta para llenar</b>. Incluye +15% de manejo local (excursiones y ciudad). Todo editable arriba: estanques, consumos y precios del litro.</p>
       </div>
     </div>
 
@@ -181,7 +208,12 @@
         <p class="desc">{{ it.desc }}</p>
         <div class="foot">
           <div class="precio">
-            <template v-if="(precioEditOriginal(it) || 0) > 0">
+            <template v-if="it.unit === 'sim'">
+              <span class="sim-total">{{ fmtCLP(costoCLP(it)) }}</span>
+              <small>plan automático</small>
+              <a class="equiv-clp" href="#itinerario" style="text-decoration:none">⛽ Ver plan de estanques</a>
+            </template>
+            <template v-else-if="(precioEditOriginal(it) || 0) > 0">
               <input class="price-edit" type="number" :value="precioEditOriginal(it)"
                      @change="editarPrecio(it, $event.target.value)"
                      :title="'Precio editable (' + it.moneda + ')'">
@@ -256,7 +288,7 @@
     </div>
     <div v-for="x in elegidos" :key="x.id" class="crow">
       <span>{{ (CLS[x.cat] || {}).icon }}</span>
-      <span class="n">{{ x.nombre }}<br><small style="color:#5a7480">{{ x.base }} · {{ x.unit === 'noche' ? noches(x.id) + ' noches' : x.unit }}<span v-if="x.moneda !== 'CLP'"> · {{ fmtMonOrig(x) }}</span></small></span>
+      <span class="n">{{ x.nombre }}<br><small style="color:#5a7480">{{ x.base }} · {{ x.unit === 'sim' ? 'plan de estanques' : x.unit === 'noche' ? noches(x.id) + ' noches' : x.unit }}<span v-if="x.moneda !== 'CLP' && x.unit !== 'sim'"> · {{ fmtMonOrig(x) }}</span></small></span>
       <span class="t">{{ fmtCLP(x.total) }}</span>
       <button class="x" @click="toggle(x)" title="Quitar">✕</button>
     </div>

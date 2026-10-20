@@ -50,6 +50,7 @@ createApp({
         if (c.dias && !c.noches) c.noches = Math.max(11, Math.min(15, c.dias - 1));
         if (!c.bloque || !BLOQUES.some(b => b.id === c.bloque)) c.bloque = "A";
         if (!c.salidaFecha) c.salidaFecha = (BLOQUES.find(b => b.id === c.bloque) || BLOQUES[0]).inicio;
+        c.vehiculos = 2;  // siempre los 2 autos reales (Rush + CX-5)
         cat.cfg = { ...cat.cfg, ...c };
       }
       if (obj.k) obj.k.forEach((v, i) => { if (checklist[i]) checklist[i].ok = v; });
@@ -180,6 +181,7 @@ createApp({
       if (!item) return 0;
       const meta = cat.seleccion[id];
       if (!meta) return 0;
+      if (item.unit === "sim") return benc.value.totalCLP;   // plan de estanques automático
       const p = precioMostrado(item);
       let total = 0;
       if (item.unit === "noche") {
@@ -388,15 +390,71 @@ createApp({
     });
 
     /* ---------- km ---------- */
-    const kmTotales = computed(() => TRAMOS.reduce((a, t) => a + t.km, 0));
-    const bencinaTotal = computed(() => {
-      const litros = kmTotales.value * 1.15 * cat.cfg.consumo / 100; // +15% manejo local
-      const cl = litros * 0.72 * cat.cfg.bencina_cl;  // ~72% km en Chile
-      const ar = litros * 0.28 * cat.cfg.bencina_ar / cat.cfg.fx.arsPorClp;
-      return { litros, total: cl + ar, veh: cat.cfg.vehiculos };
-    });
+    /* ---------- plan de bencina: simulación de estanques (Rush + CX-5) ----------
+       1) Carga virtual inicial: cada auto parte con el estanque LLENO en Santiago.
+       2) Se proyecta en km dónde se quedaría sin bencina el auto de MENOR autonomía
+          (estanque × consumo). En ese punto se detiene la ruta y ahí:
+            - el estanque chico LLENA completo (casi vacío → tanque entero)
+            - el grande paga solo lo que le falta para llenar (top-up)
+       3) Se repite hasta Santiago. Se suma +15% de manejo local (excursiones/ciudad).
+       El precio del litro depende del país del punto de carga (CLP/ARS + FX). */
+    const KM_RUTA = TRAMOS.reduce((a, t) => a + t.km, 0);          // 2.335 km de ruta
+    function paisEnKm(km) { return km <= 1020 ? "CL" : (km < 1455 ? "AR" : "CL"); }
+    function marcaCercana(km) {
+      return MARKS_BENC.reduce((b, m) => Math.abs(m.km - km) < Math.abs(b.km - km) ? m : b);
+    }
+    function planBencina() {
+      const autos = [
+        { id: "rush", nombre: "Toyota Rush", tanque: +cat.cfg.tanques.rush || 45, cons: +cat.cfg.consumos.rush || 11 },
+        { id: "cx5",  nombre: "Mazda CX-5",  tanque: +cat.cfg.tanques.cx5  || 58, cons: +cat.cfg.consumos.cx5  || 11 }
+      ].sort((a, b) => a.tanque * a.cons - b.tanque * b.cons);     // menor autonomía primero
+      const kmEf = KM_RUTA * 1.15;
+      const st = autos.map(a => ({ ...a, rest: a.tanque }));       // parten LLENOS
+      const cargas = [{
+        n: 1, lugar: "Carga virtual inicial — Santiago (04:00)", km: 0, pais: "CL",
+        porAuto: st.map(e => ({ nombre: e.nombre, litros: e.tanque, nota: "estanque lleno" }))
+      }];
+      let km = 0, guard = 0;
+      while (km < kmEf - 0.5 && guard++ < 24) {
+        const prox = Math.min(...st.map(e => km + e.rest * e.cons));
+        if (prox >= kmEf) break;                                   // llega con lo que tiene
+        const av = prox - km;
+        st.forEach(e => { e.rest -= av / e.cons; });
+        km = prox;
+        const kmRuta = Math.round(km / 1.15);                      // vuelta a escala de ruta
+        const m = marcaCercana(kmRuta);
+        const pais = paisEnKm(kmRuta);
+        const porAuto = st.map(e => {
+          const litros = Math.round((e.tanque - e.rest) * 10) / 10;
+          e.rest = e.tanque;                                       // queda lleno
+          return { nombre: e.nombre, litros, nota: litros >= e.tanque - 1 ? "llena completo" : "top-up para llenar" };
+        });
+        cargas.push({ n: cargas.length + 1, lugar: m.lugar, km: kmRuta, pais, porAuto });
+      }
+      const det = cargas.map(c => {
+        const litrosTotal = Math.round(c.porAuto.reduce((a, p) => a + p.litros, 0) * 10) / 10;
+        const pL = c.pais === "AR" ? cat.cfg.bencina_ar : cat.cfg.bencina_cl;
+        const mon = c.pais === "AR" ? "ARS" : "CLP";
+        const total = Math.round(litrosTotal * pL);
+        return { ...c, litrosTotal, mon, total, clp: aCLP(total, mon) };
+      });
+      // descontar el tramo final (de la última carga a la llegada) para el sobrante real
+      const kmRestante = Math.max(0, kmEf - km);
+      st.forEach(e => { e.rest -= kmRestante / e.cons; });
+      return {
+        autos, kmEf, cargas: det,
+        litrosTotal: Math.round(det.reduce((a, c) => a + c.litrosTotal, 0) * 10) / 10,
+        totalCLP: Math.round(det.reduce((a, c) => a + c.clp, 0)),
+        sobrante: st.map(e => ({ nombre: e.nombre, litros: Math.round(e.rest * 10) / 10 })),
+        autonomias: autos.map(a => ({ nombre: a.nombre, km: Math.round(a.tanque * a.cons) })),
+        chico: autos[0], grande: autos[1]
+      };
+    }
+    const benc = computed(planBencina);
 
     watch(() => cat.cfg.noches, () => { validarNoches(); guardar(); });
+    watch(() => cat.cfg.tanques, guardar, { deep: true });
+    watch(() => cat.cfg.consumos, guardar, { deep: true });
     watch(() => cat.cfg.bloque, () => {
       const b = bloqueAct.value;
       if (cat.cfg.salidaFecha < b.inicio || cat.cfg.salidaFecha > b.fin) cat.cfg.salidaFecha = b.inicio;
@@ -419,7 +477,7 @@ createApp({
       esta, toggle, noches, setNoches, fmtCLP, aCLP,
       precioMostrado, precioEditOriginal, editarPrecio, equivCLP, fmtMonOrig,
       toggleCapa, irEnMapa, diaItems, diasVisibles,
-      nochesBase, totalNoches, totalDias, kmTotales, bencinaTotal,
+      nochesBase, totalNoches, totalDias, kmTotales, benc, costoCLP,
       bloqueAct, nochesMax, finViaje, fechaDia, fmtF, fmtFDia, addDias, diffDias, validarNoches,
       planRecomendado, planVacio, compartir, guardar
     };

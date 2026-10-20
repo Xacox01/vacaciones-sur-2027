@@ -28,8 +28,9 @@ const VIAJE = {
   salida: "04:00",          // madrugada épica
   bloque: "A",              // bloque de fechas A o B
   salidaFecha: "2027-01-10",// dentro del bloque elegido
-  vehiculos: 1,             // toggle 1 van grande / 2 autos
-  consumo: 10,              // L por 100 km
+  vehiculos: 2,             // 2 autos reales: Toyota Rush + Mazda CX-5 (peajes y misc ×2)
+  tanques: { rush: 45, cx5: 58 },   // litros — Rush 45 L (Toyota Perú); CX-5 56–58 L (Autofact)
+  consumos: { rush: 11, cx5: 11 },  // km por litro — promedio pedido por el dueño (editable)
   bencina_cl: 1250,         // CLP/L bencina 95 (oct 2026, Copec ~$1.240)
   bencina_ar: 2100,         // ARS/L nafta súper YPF (oct 2026, CABA $2.099)
   familias: [
@@ -89,6 +90,31 @@ const TRAMOS = [
   }
 ];
 
+/* --- Marcas de km acumulado desde Santiago (para ubicar las cargas
+       de bencina de la simulación de estanques; aproximaciones) --- */
+const MARKS_BENC = [
+  { km: 0,    lugar: "Santiago — carga inicial" },
+  { km: 57,   lugar: "Angostura (Pronto Copec)" },
+  { km: 180,  lugar: "Ruta 5 — zona Rancagua/Talca" },
+  { km: 480,  lugar: "Salto del Laja" },
+  { km: 640,  lugar: "Collipulli / Victoria" },
+  { km: 780,  lugar: "Temuco" },
+  { km: 915,  lugar: "Osorno" },
+  { km: 1020, lugar: "Paso Cardenal Samoré (frontera)" },
+  { km: 1060, lugar: "Villa La Angostura" },
+  { km: 1125, lugar: "Bariloche" },
+  { km: 1270, lugar: "San Martín de los Andes" },
+  { km: 1400, lugar: "Junín de los Andes" },
+  { km: 1455, lugar: "Paso Mamuil Malal / Tromen (frontera)" },
+  { km: 1555, lugar: "Pucón" },
+  { km: 1585, lugar: "Villarrica" },
+  { km: 1655, lugar: "Temuco (vuelta)" },
+  { km: 1825, lugar: "Los Ángeles (vuelta)" },
+  { km: 1975, lugar: "Chillán (vuelta)" },
+  { km: 2335, lugar: "Santiago — llegada" }
+];
+/* frontera Samoré ≈ km 1020 (CL→AR) · frontera Tromen ≈ km 1455 (AR→CL) */
+
 /* --- ÍTEMS (catálogo completo) ---
    cat: alojamiento | atraccion | comida | ruta | extra
    unit: noche (grupo) | persona | grupo | vehiculo
@@ -98,7 +124,7 @@ const TRAMOS = [
    geo: [lat,lng] para el mapa                                    */
 const ITEMS = [
   /* ══════════ RUTA D1: SANTIAGO → OSORNO ══════════ */
-  { id: "benc-t1", cat: "ruta", base: "Ruta 5 Sur", nombre: "Bencina Santiago → Osorno", desc: "915 km con ~10 L/100 km. Tanquear lleno en Santiago (más barato que la región).", precio: 114400, moneda: "CLP", unit: "vehiculo", geo: [-33.4489,-70.6693], sugerido: true, fuente: { n: "Bencina en Línea / Copec", u: "https://www.bencinaenlinea.cl" } },
+  { id: "benc-sim", cat: "ruta", base: "Todo el viaje", nombre: "Bencina — plan de estanques (Rush + CX-5)", desc: "SIMULACIÓN DE ESTANQUES · Carga virtual llena al salir (Rush 45 L → 495 km, CX-5 58 L → 638 km, a 11 km/L) y recargas justo donde el estanque chico se quedaría seco: ahí el Rush llena completo y el CX-5 solo lo que le falta para llenar. Detalle, lugares y parámetros editables en el panel «Plan de estanques» del itinerario.", precio: 0, moneda: "CLP", unit: "sim", geo: null, sugerido: true, fuente: { n: "Toyota Perú (45 L) · Autofact CX-5 (56-58 L)", u: "https://www.autofact.cl/blog/comprar-auto/modelos/mazda-cx5" } },
   { id: "peaje-t1", cat: "ruta", base: "Ruta 5 Sur", nombre: "Peajes Ruta 5 Sur (Santiago → Osorno)", desc: "Troncales Santiago–Talca–Chillán–Collipulli–Temuco + laterales. Valor 2026.", precio: 21000, moneda: "CLP", unit: "vehiculo", geo: [-35.4264,-71.6554], sugerido: true, fuente: { n: "Autofact / peajes 2026", u: "https://www.autofact.cl/blog/mi-auto/tag/peajes-ruta-5-sur" } },
   { id: "saltolaja", cat: "atraccion", base: "En el camino", nombre: "Salto del Laja (Los Ángeles)", desc: "Cuatro saltos de hasta 35 m, miradores y puente colgante. ¡Entrada GRATIS! Parada perfecta a media mañana.", precio: 0, moneda: "CLP", unit: "grupo", geo: [-37.1531,-72.4399], rating: 4.5, sugerido: true, fuente: { n: "TripAdvisor", u: "https://www.tripadvisor.es/Attraction_Review-g488177-d7225254-Reviews-Saltos_del_Laja-Los_Angeles_Biobio_Region.html" } },
   { id: "est-saltolaja", cat: "ruta", base: "En el camino", nombre: "Estacionamiento Salto del Laja", desc: "Estacionamiento en el acceso a las cataratas.", precio: 3000, moneda: "CLP", unit: "vehiculo", geo: [-37.1531,-72.4399], sugerido: true, fuente: { n: "Relatos Nómadas", u: "https://relatosnomadas.com/visitar-salto-del-laja" } },
@@ -129,7 +155,6 @@ const ITEMS = [
   { id: "coiron", cat: "comida", base: "Osorno", nombre: "Coirón — parrilla (Osorno)", desc: "Asados y platos sureños contundentes.", precio: 15000, moneda: "CLP", unit: "persona", geo: [-40.5700,-73.1400], rating: 4.5, sugerido: false, fuente: { n: "Referencial", u: "" } },
 
   /* ══════════ RUTA D3: OSORNO → VLA → BARILOCHE ══════════ */
-  { id: "benc-t2", cat: "ruta", base: "Osorno → Bariloche", nombre: "Bencina Osorno → Bariloche", desc: "210 km. Truco: tanquear en Chile antes del paso (la nafta argentina hoy sale más cara).", precio: 27500, moneda: "CLP", unit: "vehiculo", geo: [-40.7642,-71.6418], sugerido: true, fuente: { n: "Copec/YPF oct 2026", u: "" } },
   { id: "peaje-t2", cat: "ruta", base: "Osorno → Bariloche", nombre: "Peajes RN231/RN40 (Argentina)", desc: "Pocos peajes en Patagonia argentina; presupuesto de referencia.", precio: 5200, moneda: "ARS", unit: "vehiculo", geo: [-40.9,-71.9], sugerido: true, fuente: { n: "Referencial Vialidad Nacional", u: "" } },
   { id: "arrayanes-vla", cat: "atraccion", base: "En el camino", nombre: "Bosque de Arrayanes (Villa La Angostura)", desc: "Caminata ida y vuelta (o arriendo de bicis) entre arrayanes rojizos hasta la península.", precio: 9700, moneda: "ARS", unit: "persona", geo: [-40.7550,-71.6667], rating: 4.8, sugerido: true, fuente: { n: "Parques Nacionales AR", u: "https://www.argentina.gob.ar/interior/parquesnacionales" } },
   { id: "cerrobayo", cat: "atraccion", base: "En el camino", nombre: "Cerro Bayo (Villa La Angostura)", desc: "Telecabina con vista al lago Nahuel Huapi y toda la cordillera.", precio: 22600, moneda: "ARS", unit: "persona", geo: [-40.7690,-71.6230], rating: 4.6, sugerido: false, fuente: { n: "Cerro Bayo", u: "" } },
@@ -164,7 +189,6 @@ const ITEMS = [
   { id: "almuer-sml", cat: "comida", base: "En el camino", nombre: "Almuerzo San Martín de los Andes", nivel: "medio", desc: "OPCIÓN MEDIO · Trucha ahumada o ciervo en la avenida del lago Lácar.", precio: 16100, moneda: "ARS", unit: "persona", geo: [-40.1571,-71.3539], rating: 4.7, sugerido: true, fuente: { n: "TripAdvisor SML", u: "" } },
   { id: "almuer-sml-c", cat: "comida", base: "En el camino", nombre: "Parrilla Patagonia Piscis (SML)", nivel: "premium", desc: "OPCIÓN PREMIUM · Parrillada patagónica completa en uno de los clásicos de la ciudad.", precio: 24000, moneda: "ARS", unit: "persona", geo: [-40.1571,-71.3539], sugerido: false, fuente: { n: "Interpatagonia / municipal", u: "https://sanmartindelosandes.gob.ar/gastronomias" } },
   { id: "mer-junin", cat: "comida", base: "En el camino", nombre: "Merienda en Junín de los Andes (panadería)", desc: "Parada dulce antes del paso Tromen: facturas + café con leche en panadería de Junín (última ciudad antes de la cordillera).", precio: 4500, moneda: "ARS", unit: "persona", geo: [-39.9439,-71.5055], sugerido: false, fuente: { n: "Referencial", u: "" } },
-  { id: "benc-t3", cat: "ruta", base: "Bariloche → Pucón", nombre: "Bencina Bariloche → Pucón (vía 7 Lagos)", desc: "430 km. Tanquear en San Martín o Junín (sin fila en el paso).", precio: 58300, moneda: "ARS", unit: "vehiculo", geo: [-39.9439,-71.5055], sugerido: true, fuente: { n: "YPF oct 2026", u: "" } },
   { id: "peaje-t3", cat: "ruta", base: "Bariloche → Pucón", nombre: "Peajes RN40/RN234 + paso Tromen", desc: "Referencia de peajes argentinos del tramo.", precio: 3200, moneda: "ARS", unit: "vehiculo", geo: [-39.6400,-71.5400], sugerido: true, fuente: { n: "Referencial", u: "" } },
 
   /* ══════════ PUCÓN (base 3 · días 7–12) ══════════ */
@@ -191,7 +215,6 @@ const ITEMS = [
   /* ══════════ VUELTA D12: PUCÓN → SANTIAGO ══════════ */
   { id: "desay-v", cat: "comida", base: "Pucón → Santiago", nombre: "Panadería Villarrica (marraqueta con palta + café)", nivel: "económico", desc: "OPCIÓN ECONÓMICA · Pan amasado saliente, palta y café con leche en panadería de Villarrica a 08:30.", precio: 3500, moneda: "CLP", unit: "persona", geo: [-39.2845,-72.2279], sugerido: true, fuente: { n: "Referencial", u: "" } },
   { id: "desay-v-b", cat: "comida", base: "Pucón → Santiago", nombre: "Cafetería junto al lago (Pucón)", nivel: "medio", desc: "OPCIÓN CONFIORT · Desayuno completo con vista al lago Villarrica antes de los 780 km.", precio: 7500, moneda: "CLP", unit: "persona", geo: [-39.2860,-72.3280], sugerido: false, fuente: { n: "Referencial", u: "" } },
-  { id: "benc-t4", cat: "ruta", base: "Pucón → Santiago", nombre: "Bencina Pucón → Santiago", desc: "780 km. Tanque lleno en Villarrica y recarga en Los Ángeles.", precio: 97500, moneda: "CLP", unit: "vehiculo", geo: [-38.7359,-72.5904], sugerido: true, fuente: { n: "Bencina en Línea", u: "" } },
   { id: "peaje-t4", cat: "ruta", base: "Pucón → Santiago", nombre: "Peajes Ruta 5 (Pucón → Santiago)", desc: "Troncales Temuco–Collipulli–Chillán–Talca + laterales.", precio: 19000, moneda: "CLP", unit: "vehiculo", geo: [-36.6066,-72.1034], sugerido: true, fuente: { n: "Autofact 2026", u: "" } },
   { id: "almuer-t4b", cat: "comida", base: "Pucón → Santiago", nombre: "Empanadas de horno de camino (Los Ángeles/Chillán)", nivel: "económico", desc: "OPCIÓN ECONÓMICA · Empanadas de horno y cola de mono en puestos de camino — rápida y sabrosa.", precio: 4500, moneda: "CLP", unit: "persona", geo: [-37.4700,-72.3530], sugerido: false, fuente: { n: "Referencial", u: "" } },
   { id: "almuer-t4", cat: "comida", base: "Pucón → Santiago", nombre: "Almuerzo ruta Chillán / Los Ángeles", nivel: "medio", desc: "OPCIÓN MEDIO · Menú dominical o plato de fondo en restaurant de camino.", precio: 9000, moneda: "CLP", unit: "persona", geo: [-36.6066,-72.1034], sugerido: true, fuente: { n: "Referencial", u: "" } },
@@ -208,7 +231,7 @@ const ITEMS = [
 const ITINERARIO = [
   { dia: 1, base: "Osorno", titulo: "Madrugada épica: Santiago → Osorno", hora: "04:00",
     cuerpo: "Salida 04:00 en punto. Ruta 5 Sur con ciudad despejada, desayuno en la ruta y la gran parada del día: Salto del Laja a las 09:30. Almuerzo en Collipulli, llegada a Osorno ~15:30, caminata por la costanera del río Rahue y cena temprana.",
-    items: ["saltolaja","desay-t1","almuer-t1","cena-d1"] },
+    items: ["saltolaja","desay-t1","almuer-t1","cena-d1","benc-sim"] },
   { dia: 2, base: "Osorno", titulo: "Día de termas y lagos (Puyehue o Frutillar)",
     cuerpo: "Plan A: P.N. Puyehue + Termas Aguas Calientes (día entero de bosque valdiviano y aguas calientes). Plan B (si llueve): Frutillar Bajo, Teatro del Lago y kuchen en Latitud 42°.",
     items: ["termas-aguascalientes","pn-puyehue","frutillar","kuchen-frutillar"] },
@@ -226,7 +249,7 @@ const ITINERARIO = [
     items: ["isla-victoria","blest","super-brc"] },
   { dia: 7, base: "Bariloche → Pucón", titulo: "Ruta de los Siete Lagos + Tromen",
     cuerpo: "El día escénico: RN234 por los 7 lagos, almuerzo en San Martín de los Andes, paso Mamuil Malal (cierra 20:00 — salir temprano) y llegada a Pucón.",
-    items: ["siete-lagos","almuer-sml","benc-t3","peaje-t3"] },
+    items: ["siete-lagos","almuer-sml","peaje-t3"] },
   { dia: 8, base: "Pucón", titulo: "Termas Geométricas ⭐",
     cuerpo: "Mañana tranquila (feria y helado), tarde/noche en las Termas Geométricas: 17 piscinas de piedra entre helechos gigantes. Llevar traje ya puesto y sandwich.",
     items: ["feria-pucon","termas-geometricas"] },
@@ -241,7 +264,7 @@ const ITINERARIO = [
     items: ["playa-pucon","souvenirs"] },
   { dia: 12, base: "Pucón → Santiago", titulo: "Regreso a casa (780 km)",
     cuerpo: "Salida 08:30 tras desayuno en Villarrica. Ruta 5 con parada de almuerzo en Chillán. Llegada ~18:00: pizza y selección oficial de fotos del viaje.",
-    items: ["benc-t4","peaje-t4","almuer-t4","cena-final"] }
+    items: ["peaje-t4","almuer-t4","cena-final"] }
 ];
 
 /* --- Checklist documentos paso fronterizo --- */
