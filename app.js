@@ -451,6 +451,7 @@ createApp({
       };
     }
     const benc = computed(planBencina);
+    const kmTotales = computed(() => KM_RUTA);   // km de ruta total (hero)
 
     watch(() => cat.cfg.noches, () => { validarNoches(); guardar(); });
     watch(() => cat.cfg.tanques, guardar, { deep: true });
