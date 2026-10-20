@@ -224,3 +224,12 @@ footer .card { background: var(--card); border: 1px solid var(--line); border-ra
   .hero { padding: 44px 0 64px; }
   .item .foot { gap: 6px; }
 }
+
+/* ---------- v2: nivel económico/medio/premium + fechas de itinerario ---------- */
+.nivel { font-size: 10.5px; font-weight: 900; letter-spacing: .4px; padding: 3px 9px; border-radius: 999px; text-transform: uppercase; }
+.nivel.n-econ { background: #ecfdf5; color: #059669; border: 1px solid #a7f3d0; }
+.nivel.n-med  { background: #fffbeb; color: #b45309; border: 1px solid #fde68a; }
+.nivel.n-pre  { background: #f5f3ff; color: #7c3aed; border: 1px solid #ddd6fe; }
+.dia-fecha { opacity: .75; font-weight: 700; font-size: 11.5px; }
+.fechas-hero { opacity: .95; }
+.item .top .nivel { margin-left: auto; }

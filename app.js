@@ -3,6 +3,8 @@
    Vue 3 (CDN) + Leaflet (CDN) · presupuesto vivo · mapa con ruta
    ============================================================ */
 
+const NIVEL_C = { "económico": "#059669", "medio": "#d97706", "premium": "#7c3aed" };
+
 const CLS = {
   alojamiento: { label: "Alojamiento", color: "#0891b2", icon: "🏠" },
   atraccion:   { label: "Atracción",   color: "#f59e0b", icon: "🎟️" },
@@ -42,7 +44,14 @@ createApp({
     function restaurar(obj) {
       if (obj.s) cat.seleccion = obj.s;
       if (obj.p) cat.precios = obj.p;
-      if (obj.c) cat.cfg = { ...cat.cfg, ...obj.c };
+      if (obj.c) {
+        // migración: plan guardado con el esquema viejo (dias) o incompleto
+        const c = { ...obj.c };
+        if (c.dias && !c.noches) c.noches = Math.max(11, Math.min(15, c.dias - 1));
+        if (!c.bloque || !BLOQUES.some(b => b.id === c.bloque)) c.bloque = "A";
+        if (!c.salidaFecha) c.salidaFecha = (BLOQUES.find(b => b.id === c.bloque) || BLOQUES[0]).inicio;
+        cat.cfg = { ...cat.cfg, ...c };
+      }
       if (obj.k) obj.k.forEach((v, i) => { if (checklist[i]) checklist[i].ok = v; });
     }
     function guardar() {
@@ -78,18 +87,49 @@ createApp({
     function planVacio() { cat.seleccion = {}; }
 
     /* ---------- noches por base según duración ----------
-       noches totales = días − 1; resto se asigna a Pucón (base más larga) */
+       slider 11–15 noches; resto se asigna a Pucón (base más larga) */
     function nochesBase(base) {
-      const d = cat.cfg.dias; // 10..14
-      const os = d >= 13 ? 3 : 2;
-      const br = d >= 12 ? 4 : 3;
-      const pu = Math.max(2, (d - 1) - os - br);
+      const n = cat.cfg.noches;              // 11..15
+      const os = n >= 13 ? 3 : 2;
+      const br = n >= 15 ? 5 : (n >= 12 ? 4 : 3);
+      const pu = Math.max(2, n - os - br);
       if (base === "Osorno") return os;
       if (base === "Bariloche") return br;
       if (base === "Pucón") return pu;
       return 1;
     }
-    const totalNoches = computed(() => Math.max(0, cat.cfg.dias - 1));
+    const totalNoches = computed(() => cat.cfg.noches);
+    const totalDias = computed(() => cat.cfg.noches + 1);
+
+    /* ---------- fechas: bloques reales del viaje ---------- */
+    function addDias(iso, n) {
+      const d = new Date(iso + "T12:00:00Z"); d.setUTCDate(d.getUTCDate() + n);
+      return d.toISOString().slice(0, 10);
+    }
+    function diffDias(a, b) {
+      return Math.round((new Date(a + "T12:00:00Z") - new Date(b + "T12:00:00Z")) / 864e5);
+    }
+    function fmtF(iso) {
+      return new Date(iso + "T12:00:00Z").toLocaleDateString("es-CL", { day: "numeric", month: "short", timeZone: "UTC" });
+    }
+    function fmtFDia(iso) {
+      return new Date(iso + "T12:00:00Z").toLocaleDateString("es-CL", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" });
+    }
+    const bloqueAct = computed(() => BLOQUES.find(b => b.id === cat.cfg.bloque) || BLOQUES[0]);
+    const finViaje = computed(() => addDias(cat.cfg.salidaFecha, cat.cfg.noches));
+    const nochesMax = computed(() => Math.min(15, Math.max(11, diffDias(bloqueAct.value.fin, cat.cfg.salidaFecha))));
+    function fechaDia(n) { return fmtFDia(addDias(cat.cfg.salidaFecha, n - 1)); }
+    function validarNoches() {
+      const b = bloqueAct.value;
+      let s = cat.cfg.salidaFecha;
+      if (s < b.inicio) s = b.inicio;
+      const capSalida = addDias(b.fin, -Math.max(11, cat.cfg.noches));
+      if (s > capSalida) s = (capSalida < b.inicio) ? b.inicio : capSalida;
+      cat.cfg.salidaFecha = s;
+      const maxN = Math.max(11, diffDias(b.fin, s));
+      if (cat.cfg.noches > Math.min(15, maxN)) cat.cfg.noches = Math.min(15, maxN);
+      if (cat.cfg.noches < 11) cat.cfg.noches = 11;
+    }
 
     /* ---------- moneda ---------- */
     function aCLP(precio, moneda) {
@@ -150,7 +190,7 @@ createApp({
     );
     const totalCLP = computed(() => elegidos.value.reduce((a, x) => a + x.total, 0));
     const porPersona = computed(() => totalCLP.value / 9);
-    const porDia = computed(() => totalCLP.value / cat.cfg.dias);
+    const porDia = computed(() => totalCLP.value / (cat.cfg.noches + 1));
     const enUSD = computed(() => totalCLP.value / cat.cfg.fx.clpPorUsd);
 
     const porCategoria = computed(() => {
@@ -190,7 +230,7 @@ createApp({
     function noches(id) { return (cat.seleccion[id] || {}).n || 1; }
     function setNoches(id, n) {
       if (!cat.seleccion[id]) return;
-      cat.seleccion[id].n = Math.max(1, Math.min(14, n));
+      cat.seleccion[id].n = Math.max(1, Math.min(cat.cfg.noches, n));
       guardar();
     }
 
@@ -212,7 +252,7 @@ createApp({
         : "¡GRATIS!";
       return `<div class="pop">
         <div class="pop-cat" style="background:${c.color}">${c.icon} ${c.label}</div>
-        <div class="pop-nombre">${item.nombre}</div>
+        <div class="pop-nombre">${item.nombre}${item.nivel ? ` <span style="display:inline-block;font-size:10.5px;font-weight:800;padding:2px 8px;border-radius:99px;color:#fff;background:${NIVEL_C[item.nivel] || "#64748b"};vertical-align:middle">${item.nivel.toUpperCase()}</span>` : ""}</div>
         <div class="pop-desc">${item.desc || ""}</div>
         <div class="pop-precio">${precioTxt}${item.rating ? ` · ★${item.rating}` : ""}</div>
         ${item.fuente && item.fuente.u ? `<a href="${item.fuente.u}" target="_blank" rel="noopener">Fuente: ${item.fuente.n} ↗</a>` : ""}
@@ -305,11 +345,33 @@ createApp({
       setTimeout(() => { map.setView(it.geo, 12); it.marker && it.marker; }, 350);
     }
 
-    /* ---------- itinerario ---------- */
+    /* ---------- itinerario (con días extra cuando hay 12+ noches) ---------- */
+    const EXTRAS = [
+      { base: "Bariloche", titulo: "Día extra en Bariloche: Otto y Colonia Suiza", hora: "09:00",
+        cuerpo: "Aerosilla del Cerro Otto y la confitería giratoria, tarde en Colonia Suiza (curanto si cae miércoles/domingo) y playa en Bahía López.",
+        items: ["cerro-otto", "colonia-suiza"] },
+      { base: "Pucón", titulo: "Día extra en Pucón: Caburgua, termas y playa", hora: "09:30",
+        cuerpo: "Ojos del Caburgua por la mañana, termas de Palguín después del almuerzo y atardecer en la playa con el volcán de fondo.",
+        items: ["ojos-caburgua", "termas-palguin", "playa-pucon"] },
+      { base: "Osorno", titulo: "Día extra zona Osorno: Puerto Octay y Pilmaiquén", hora: "10:00",
+        cuerpo: "Vuelta relajada por el lago Rupanco: miradores de Puerto Octay y los saltos del Pilmaiquén antes de volver a la casa.",
+        items: ["puerto-octay", "pilmaiquen"] },
+      { base: "Pucón", titulo: "Día extra relax en Pucón: lago, feria y asado", hora: "10:30",
+        cuerpo: "Mañana de playa y kayak, feria artesanal por la tarde y asado de despedida en el quincho.",
+        items: ["playa-pucon", "feria-pucon"] }
+    ];
     function diaItems(d) {
       return (d.items || []).map(id => itemPorId(id)).filter(Boolean);
     }
-    const diasVisibles = computed(() => itin.filter(d => d.dia <= cat.cfg.dias));
+    const diasVisibles = computed(() => {
+      const n = cat.cfg.noches + 1;                     // días totales (12–16)
+      const base = itin.filter(d => d.dia <= 11);
+      const regreso = itin.find(d => d.dia === 12);
+      const extras = EXTRAS.slice(0, Math.max(0, n - 12));
+      const lista = [...base, ...extras.map((e, i) => ({ ...e, dia: 12 + i }))];
+      if (regreso && n >= 12) lista.push({ ...regreso, dia: n });
+      return lista.slice(0, n).map((d, i) => ({ ...d, dia: i + 1 }));
+    });
 
     /* ---------- km ---------- */
     const kmTotales = computed(() => TRAMOS.reduce((a, t) => a + t.km, 0));
@@ -320,7 +382,14 @@ createApp({
       return { litros, total: cl + ar, veh: cat.cfg.vehiculos };
     });
 
-    watch(() => cat.cfg.dias, guardar);
+    watch(() => cat.cfg.noches, () => { validarNoches(); guardar(); });
+    watch(() => cat.cfg.bloque, () => {
+      const b = bloqueAct.value;
+      if (cat.cfg.salidaFecha < b.inicio || cat.cfg.salidaFecha > b.fin) cat.cfg.salidaFecha = b.inicio;
+      validarNoches();
+      guardar();
+    });
+    watch(() => cat.cfg.salidaFecha, () => { validarNoches(); guardar(); });
     watch(() => cat.cfg.vehiculos, guardar);
     watch(checklist, guardar, { deep: true });
 
@@ -330,13 +399,14 @@ createApp({
     });
 
     return {
-      cat, items, itin, checklist, CLS,
+      cat, items, itin, checklist, CLS, BLOQUES,
       bases, categorias, catalogo,
       elegidos, totalCLP, porPersona, porDia, enUSD, porCategoria, porFamilia,
       esta, toggle, noches, setNoches, fmtCLP, aCLP,
       precioMostrado, precioEditOriginal, editarPrecio,
       toggleCapa, irEnMapa, diaItems, diasVisibles,
-      nochesBase, totalNoches, kmTotales, bencinaTotal,
+      nochesBase, totalNoches, totalDias, kmTotales, bencinaTotal,
+      bloqueAct, nochesMax, finViaje, fechaDia, fmtF, fmtFDia, addDias, diffDias, validarNoches,
       planRecomendado, planVacio, compartir, guardar
     };
   }

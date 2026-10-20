@@ -17,10 +17,11 @@
 <!-- ══════════ HERO ══════════ -->
 <header class="hero">
   <div class="wrap" style="position:relative;z-index:2">
-    <span class="kicker">🚙 2 familias · 9 personas · {{ cat.cfg.dias }} días · salida {{ cat.cfg.salida }}</span>
+    <span class="kicker">🚙 2 familias · 9 personas · {{ totalNoches }} noches ({{ totalDias }} días) · salida {{ cat.cfg.salida }}</span>
     <h1>Operación <em>Sur 2027</em></h1>
     <p class="sub">El plan completo del viaje en auto: qué ver en el camino, dónde dormir para 9, dónde comer rico
       y cuánto cuesta TODO — sumando pieza por pieza. Tú decides qué entra al viaje.</p>
+    <p class="fechas-hero" style="margin:10px 0 0;font-weight:800;font-size:15.5px">📅 Bloque {{ cat.cfg.bloque }}: {{ fmtFDia(cat.cfg.salidaFecha) }} → {{ fmtFDia(finViaje) }} · {{ totalNoches }} noches</p>
     <div class="hero-stats">
       <div class="hstat"><b>{{ kmTotales.toLocaleString('es-CL') }} km</b><span>de ruta total</span></div>
       <div class="hstat"><b>{{ totalNoches }} noches</b><span>3 bases + camino</span></div>
@@ -81,14 +82,26 @@
   <div class="wrap">
     <div class="sec-head">
       <div class="eyebrow">Día a día</div>
-      <h2>El itinerario ({{ cat.cfg.dias }} días)</h2>
-      <p>Cada día con su plan: ruta, actividades y dónde comer. Los ítems están conectados al catálogo —
+      <h2>El itinerario ({{ totalDias }} días · {{ totalNoches }} noches)</h2>
+      <p>Cada día con su plan y su FECHA REAL según el bloque elegido: ruta, actividades y dónde comer. Los ítems están conectados al catálogo —
         toca una píldora para sumarla o quitarla del presupuesto.</p>
       <div class="settings" style="margin-top:18px">
         <div class="set">
-          <label>DURACIÓN DEL VIAJE (10–14 DÍAS)</label>
-          <input type="range" min="10" max="14" v-model.number="cat.cfg.dias">
-          <span class="val">{{ cat.cfg.dias }} días · {{ totalNoches }} noches</span>
+          <label>BLOQUE DE FECHAS</label>
+          <div class="seg">
+            <button v-for="b in BLOQUES" :key="b.id" :class="{ on: cat.cfg.bloque === b.id }" @click="cat.cfg.bloque = b.id">{{ b.nombre }}</button>
+          </div>
+          <span style="font-size:12.5px;color:#5a7480">{{ bloqueAct.nota }}</span>
+        </div>
+        <div class="set">
+          <label>FECHA DE SALIDA (04:00)</label>
+          <input type="date" v-model="cat.cfg.salidaFecha" :min="bloqueAct.inicio" :max="addDias(bloqueAct.fin, -cat.cfg.noches)">
+          <span class="val">saliendo {{ fmtFDia(cat.cfg.salidaFecha) }} 04:00 · vuelta {{ fmtFDia(finViaje) }}</span>
+        </div>
+        <div class="set">
+          <label>DURACIÓN DEL VIAJE (11–15 NOCHES)</label>
+          <input type="range" min="11" :max="nochesMax" v-model.number="cat.cfg.noches">
+          <span class="val">{{ cat.cfg.noches }} noches · {{ totalDias }} días</span>
         </div>
         <div class="set">
           <label>VEHÍCULOS</label>
@@ -116,7 +129,7 @@
     <div class="timeline">
       <div v-for="d in diasVisibles" :key="d.dia" class="dia-card" :class="{ amanecer: d.dia === 1 }">
         <div class="dia-num">{{ d.dia }}</div>
-        <div class="dia-tag">{{ d.dia === 1 ? '⭐ salida ' + cat.cfg.salida + ' — la madrugada épica' : (d.base || '') }}</div>
+        <div class="dia-tag">{{ d.dia === 1 ? '⭐ salida ' + cat.cfg.salida + ' — la madrugada épica' : (d.base || '') }} <span class="dia-fecha">· {{ fechaDia(d.dia) }}</span></div>
         <h3>{{ d.titulo }}</h3>
         <p>{{ d.cuerpo }}</p>
         <div class="dia-items">
@@ -139,8 +152,9 @@
     <div class="sec-head">
       <div class="eyebrow">Opciones para armar el viaje</div>
       <h2>Catálogo: todo lo que se puede agregar</h2>
-      <p>Alojamientos para 9 (casa completa o 2 cabañas por familia en el mismo recinto), atracciones con entrada,
-        restaurantes bien reputados, combustible y peajes por tramo. <b>Todos los precios son editables</b> —
+      <p>Alojamientos para 9 (casa completa o 2 cabañas por familia en el mismo recinto — con opciones <b>económicas por dueño directo</b>), atracciones con entrada,
+        restaurantes bien reputados, combustible y peajes por tramo. Cada parada de la ruta tiene <b>varias opciones (económico / medio / premium)</b> para elegir entre precio y calidad:
+        agrega la tuya y el resto deja fuera. <b>Todos los precios son editables</b> —
         cuando sepas el precio real, cámbialo y el presupuesto se actualiza al instante.</p>
     </div>
 
@@ -161,6 +175,7 @@
         <div class="top">
           <span class="base-tag">{{ (CLS[it.cat] || {}).icon }} {{ it.base }}</span>
           <span class="rating" v-if="it.rating">★ {{ it.rating }}</span>
+          <span class="nivel" v-if="it.nivel" :class="{ 'n-econ': it.nivel === 'económico', 'n-med': it.nivel === 'medio', 'n-pre': it.nivel === 'premium' }">{{ it.nivel }}</span>
         </div>
         <h3>{{ it.nombre }}</h3>
         <p class="desc">{{ it.desc }}</p>
@@ -216,8 +231,9 @@
   <div class="wrap">
     <div class="card">
       <b>Operación Sur 2027</b> — planificador del road trip Santiago · Osorno · Bariloche · Pucón.
+      Bloques de fechas propuestos: <b>10 ene – 5 feb 2027</b> y <b>8 – 21 feb 2027</b>, estancias de 11 a 15 noches.
       Precios = referencias de mercado recolectadas en octubre 2026 desde fuentes públicas
-      (Airbnb, Booking, CONAF/Pases Parques, Catedral Alta Patagonia, Termas Geométricas, YPF, Copec,
+      (Airbnb, Booking, Parairnos/dueños directos, CONAF/Pases Parques, Catedral Alta Patagonia, Termas Geométricas, YPF, Copec/Pronto,
       TripAdvisor, Autofact/MOP) — pueden variar al reservar, por eso <b>todos son editables en la página</b>.
       El plan se guarda solo en este navegador y se comparte con el botón «Compartir plan».
     </div>
